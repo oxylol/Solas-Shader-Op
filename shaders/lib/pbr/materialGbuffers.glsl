@@ -42,13 +42,14 @@ void getMaterials(out float smoothness, out float metalness, out float f0, inout
     float emissionMat = specularMap.a < 1.0 ? clamp(specularMap.a * 1.004 - 0.004, 0.0, 1.0) : 0.0;
           emissionMat *= emissionMat;
 
+    // Optimized: Single texture fetch instead of two separate samples
     #ifdef PARALLAX
-	vec3 normalMap = vec3(texture2DGradARB(normals, newCoord, dcdx, dcdy).xy, 0.0) * 2.0 - 1.0;
-    ao = texture2DGradARB(normals, newCoord, dcdx, dcdy).z;
+    vec3 normalSample = texture2DGradARB(normals, newCoord, dcdx, dcdy).xyz;
     #else
-	vec3 normalMap = vec3(texture2D(normals, texCoord).xy, 0.0) * 2.0 - 1.0;
-    ao = texture2D(normals, texCoord).z;
+    vec3 normalSample = texture2D(normals, texCoord).xyz;
     #endif
+    vec3 normalMap = vec3(normalSample.xy, 0.0) * 2.0 - 1.0;
+    ao = normalSample.z;
 
     if (normalMap.x + normalMap.y > -1.999) {
         if (length(normalMap.xy) > 1.0) {

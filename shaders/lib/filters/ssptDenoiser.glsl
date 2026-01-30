@@ -3,8 +3,10 @@ float getLinearDepth(float depth) {
    return (near * far) / (depth * (near - far) + far);
 }
 
+// Optimized: exp2 is faster than exp on most GPUs
 float gaussian2D(vec2 offset) {
-    return 0.159154 * exp(-dot(offset, offset) / 2.0);
+    // exp(-x/2) = exp2(-x/2 * LOG2_E) = exp2(-x * 0.7213475)
+    return 0.159154 * exp2(-dot(offset, offset) * 0.7213475);
 }
 
 vec3 denoiseSSPT(sampler2D colortex, vec2 coord) {

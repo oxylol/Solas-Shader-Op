@@ -56,6 +56,7 @@ void getCloudShadow(vec2 coord, vec2 wind, float amount, float frequency, float 
 	float noiseBase = cloudSampleBasePerlinWorley(baseCoord);
 
 	noise = CloudCombineDefault(noiseBase, 0.0, amount, density);
-	noise = clamp(exp(-3.5 * noise), 0.0, 1.0);
+	// Optimized: exp2 is faster than exp (-3.5 * LOG2_E = -5.0494)
+	noise = clamp(exp2(-5.0494 * noise), 0.0, 1.0);
     noise = fmix(1.0, noise, shadowFade);
 }

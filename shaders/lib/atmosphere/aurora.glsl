@@ -34,7 +34,8 @@ float auroraDistortedNoise(vec2 coord, float kpIndex, float pulse, float longPul
 
     //Arc centered near zenith, very wide and persistent with a slight north bias
     float zenithDist = abs(coord.y + 1.0);
-    float arc = mix(exp(-3.0 * zenithDist * zenithDist), 0.125, altitudeFactor50k);
+    // Optimized: exp2 is faster than exp (-3.0 * LOG2_E = -4.328)
+    float arc = mix(exp2(-4.328 * zenithDist * zenithDist), 0.125, altitudeFactor50k);
 
     //Slight waviness so it’s not perfectly straight
     arc *= 0.65 + 0.35 * f;

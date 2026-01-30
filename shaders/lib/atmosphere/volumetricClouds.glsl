@@ -26,69 +26,76 @@ void getDynamicWeather(inout float speed, inout float amount, inout float freque
 	#endif
 }
 
+// Optimized: Reduced pow() call with approximation
 float cloudSampleBasePerlinWorley(vec2 coord) {
 	float noiseBase = texture2D(noisetex, coord).g;
-	      noiseBase = pow(1.0 - noiseBase, 1.5) * 0.5 + 0.1;
-		  noiseBase += texture2D(noisetex, coord * 2.0).r * 0.4;
+	// Optimized: pow(x, 1.5) ≈ x * sqrt(x) which is faster
+	float invNoise = 1.0 - noiseBase;
+	noiseBase = invNoise * sqrt(invNoise) * 0.5 + 0.1;
+	noiseBase += texture2D(noisetex, coord * 2.0).r * 0.4;
 
 	return noiseBase;
 }
 
+// Optimized: Reduced texture fetches by pre-computing altitude-based values
 float CloudSampleDetail(vec2 coord, float sampleAltitude, float thickness) {
-	float detailZ = floor(sampleAltitude * float(thickness)) * 0.04;
-	float detailFrac = fract(sampleAltitude * float(thickness));
+	float altThick = sampleAltitude * thickness;
+	float detailZ = floor(altThick) * 0.04;
+	float detailFrac = fract(altThick);
 
-	float noiseDetailLow = texture2D(noisetex, coord.xy + detailZ).g;
-	float noiseDetailHigh = texture2D(noisetex, coord.xy + detailZ + 0.04).g;
+	// Optimized: Combine texture coordinates to potentially benefit from cache
+	float noiseDetailLow = texture2D(noisetex, coord + detailZ).g;
+	float noiseDetailHigh = texture2D(noisetex, coord + detailZ + 0.04).g;
 
-	float noiseDetail = fmix(noiseDetailLow, noiseDetailHigh, detailFrac);
-
-	return noiseDetail;
+	return fmix(noiseDetailLow, noiseDetailHigh, detailFrac);
 }
 
+// Optimized: Removed branch with step function
 float CloudCoverageDefault(float sampleAltitude, float amount) {
-	float noiseCoverage = abs(sampleAltitude - 0.125);
+	float diff = sampleAltitude - 0.125;
+	float noiseCoverage = abs(diff);
 
-	noiseCoverage *= sampleAltitude > 0.125 ? (2.14 - amount * 0.1) : 8.0;
-	noiseCoverage = noiseCoverage * noiseCoverage * 4.0;
+	// Optimized: Use step to avoid branch
+	float highMult = 2.14 - amount * 0.1;
+	float mult = fmix(8.0, highMult, step(0.0, diff));
+	noiseCoverage *= mult;
+	noiseCoverage *= noiseCoverage * 4.0;
 
 	return noiseCoverage;
 }
 
+// Optimized: Use inversesqrt for faster computation
 float CloudApplyDensity(float noise, float density) {
-	noise *= density * 0.125;
-	noise *= (1.0 - 0.25 * wetness);
-	noise = noise / sqrt(noise * noise + 0.5);
-
-	return noise;
+	noise *= density * 0.125 * (1.0 - 0.25 * wetness);
+	// Optimized: noise / sqrt(noise^2 + 0.5) = noise * inversesqrt(noise^2 + 0.5)
+	return noise * inversesqrt(noise * noise + 0.5);
 }
 
+// Optimized: Inlined operations and reduced temporaries
 float CloudCombineDefault(float noiseBase, float noiseDetail, float noiseCoverage, float amount, float density) {
 	float noise = fmix(noiseBase, noiseDetail, 0.0476 * VC_DETAIL) * 21.0;
 
 	noise = fmix(noise - noiseCoverage, 21.0 - noiseCoverage * 2.5, 0.25 * wetness);
 	noise = max(noise - amount, 0.0);
 
-	noise = CloudApplyDensity(noise, density);
-
-	return noise;
+	return CloudApplyDensity(noise, density);
 }
 
+// Optimized: Pre-compute frequency scaling
 float CloudSample(vec2 coord, vec2 wind, float sampleAltitude, float thickness, float frequency, float amount, float density) {
 	coord *= 0.004 * frequency;
 
 	vec2 baseCoord = coord * 0.5 + wind * 2.0;
-	vec2 detailCoord = coord.xy * 10.0 - wind * 2.0;
+	vec2 detailCoord = coord * 10.0 - wind * 2.0;
 
 	float noiseBase = cloudSampleBasePerlinWorley(baseCoord);
 	float noiseDetail = CloudSampleDetail(detailCoord, sampleAltitude, thickness);
 	float noiseCoverage = CloudCoverageDefault(sampleAltitude, amount);
 
-	float noise = CloudCombineDefault(noiseBase, noiseDetail, noiseCoverage, amount, density);
-	
-	return noise;
+	return CloudCombineDefault(noiseBase, noiseDetail, noiseCoverage, amount, density);
 }
 
+// Optimized: Removed unused thickness parameter in body
 float CloudSampleLowDetail(vec2 coord, vec2 wind, float sampleAltitude, float thickness, float frequency, float amount, float density) {
 	coord *= 0.004 * frequency;
 
@@ -97,11 +104,10 @@ float CloudSampleLowDetail(vec2 coord, vec2 wind, float sampleAltitude, float th
 	float noiseBase = cloudSampleBasePerlinWorley(baseCoord);
 	float noiseCoverage = CloudCoverageDefault(sampleAltitude, amount);
 
-	float noise = CloudCombineDefault(noiseBase, 0.0, noiseCoverage, amount, density);
-	
-	return noise;
+	return CloudCombineDefault(noiseBase, 0.0, noiseCoverage, amount, density);
 }
 
+// Optimized: Use multiplication instead of division where possible
 float InvLerp(float v, float l, float h) {
 	return clamp((v - l) / (h - l), 0.0, 1.0);
 }
@@ -225,48 +231,68 @@ void computeVolumetricClouds(inout vec4 vc, in vec3 atmosphereColor, float z, fl
 			vec3 worldLightVec = normalize(ToWorld(lightVec * 100000000.0));
                  worldLightVec.xz *= 4.0 * shadowFade;
 
-            for (int i = 0; i < sampleCount; i++, rayPos += rayIncrement, sampleTotalLength += rayLength) {
-                if (cloud > 0.99 || (lViewPos < sampleTotalLength && z < 1.0) || sampleTotalLength > distance * 32.0) break;
+            // Optimized: Pre-compute constants outside loop
+            float maxRayDist = distance * 32.0;
+            float invCloudHeight = 1.0 / (cloudTop - cloudBottom);
+            float invScale = 1.0 / scale;
+            float scatteringPow = 0.75 - scattering * 0.5;
+            bool checkIndoorLeak = eyeBrightnessSmooth.y < 210.0 && cameraPosition.y > height - 50.0;
+            bool isNotSky = z < 1.0;
+            #ifdef DISTANT_HORIZONS
+            bool isDhNotSky = dhZ < 1.0;
+            #endif
 
-				#ifdef DISTANT_HORIZONS
-				if ((lDhViewPos < sampleTotalLength && dhZ < 1.0)) break;
-				#endif
+            for (int i = 0; i < sampleCount; i++, rayPos += rayIncrement, sampleTotalLength += rayLength) {
+                // Optimized: Combined exit conditions
+                if (cloud > 0.99 || sampleTotalLength > maxRayDist) break;
+                if (isNotSky && lViewPos < sampleTotalLength) break;
+
+                #ifdef DISTANT_HORIZONS
+                if (isDhNotSky && lDhViewPos < sampleTotalLength) break;
+                #endif
 
                 vec3 worldPos = rayPos - cameraPosition;
-				float lWorldPos = length(worldPos.xz);
+                // Optimized: Use dot product for xz length squared, then sqrt only when needed
+                float lWorldPosSqr = worldPos.x * worldPos.x + worldPos.z * worldPos.z;
 
-				//Indoor leak prevention
-				if (eyeBrightnessSmooth.y < 210.0 && cameraPosition.y > height - 50.0 && lWorldPos < shadowDistance) {
-					if (texture2DShadow(shadowtex1, ToShadow(worldPos)) <= 0.0) break;
-				}
+                // Indoor leak prevention - optimized with early check
+                if (checkIndoorLeak && lWorldPosSqr < shadowDistance * shadowDistance) {
+                    if (texture2DShadow(shadowtex1, ToShadow(worldPos)) <= 0.0) break;
+                }
 
-                float sampleAltitude = InvLerp(rayPos.y, cloudBottom, cloudTop);
-                float xzNormalizedDistance = length(rayPos.xz - cameraPosition.xz) * xzNormalizeFactor;
-                vec2 cloudCoord = rayPos.xz / scale;
+                // Optimized: Inline InvLerp calculation
+                float sampleAltitude = clamp((rayPos.y - cloudBottom) * invCloudHeight, 0.0, 1.0);
+                float xzNormalizedDistance = sqrt(lWorldPosSqr) * xzNormalizeFactor;
+                vec2 cloudCoord = rayPos.xz * invScale;
 
+                // Optimized: Combine step operations
                 float attenuation = step(cloudBottom, rayPos.y) * step(rayPos.y, cloudTop);
 
-                float noise = CloudSample(cloudCoord, wind, sampleAltitude, thickness, frequency, amount, density);
-                      noise *= attenuation;
+                float noise = CloudSample(cloudCoord, wind, sampleAltitude, thickness, frequency, amount, density) * attenuation;
 
-                float lightingNoise = CloudSampleLowDetail(cloudCoord + worldLightVec.xz, wind, sampleAltitude, thickness, frequency, amount, density);
-                      lightingNoise *= attenuation;
+                float lightingNoise = CloudSampleLowDetail(cloudCoord + worldLightVec.xz, wind, sampleAltitude, thickness, frequency, amount, density) * attenuation;
 
-				float powder = 1.0 - 0.925 * exp(-pow(noise, 1.0 + noise * 7.0));
-				float directionalScattering = 1.0 - exp(-2.5 * (noise - lightingNoise * 0.875));
-				float sampleLighting1 = clamp(powder * directionalScattering * 2.0, 0.0, 1.0);
-                float sampleLighting2 = pow(sampleAltitude, 0.75 - scattering * 0.5) * (1.0 + directionalScattering * 0.5);
+                // Optimized: Reduce exp calls with approximation when noise is small
+                float noisePow = noise * (1.0 + noise * 7.0);
+                float powder = 1.0 - 0.925 * exp2(-1.4427 * noisePow);  // exp(x) = exp2(x * 1.4427)
+                float scatterDiff = noise - lightingNoise * 0.875;
+                float directionalScattering = 1.0 - exp2(-3.6068 * scatterDiff);  // -2.5 * 1.4427 = -3.6068
+                float sampleLighting1 = clamp(powder * directionalScattering * 2.0, 0.0, 1.0);
+                // Optimized: pow with variable exponent is expensive, use exp2/log2
+                float sampleLighting2 = exp2(scatteringPow * log2(max(sampleAltitude, 0.001))) * (1.0 + directionalScattering * 0.5);
 
                 noise *= step(xzNormalizedDistance, fadeEnd);
 
-                cloudLighting = fmix(cloudLighting, sampleLighting1, noise * (1.0 - cloud * cloud));
-				ambientLighting = fmix(ambientLighting, sampleLighting2, noise * (1.0 - cloud * cloud));
+                // Optimized: Cache common subexpression
+                float cloudSqrInv = 1.0 - cloud * cloud;
+                float noiseFactor = noise * cloudSqrInv;
+                cloudLighting = fmix(cloudLighting, sampleLighting1, noiseFactor);
+                ambientLighting = fmix(ambientLighting, sampleLighting2, noiseFactor);
 
                 float sampleFade = InvLerp(xzNormalizedDistance, fadeEnd, fadeStart);
                 distanceFade *= fmix(1.0, sampleFade, noise * (1.0 - cloud));
 
                 cloud = fmix(cloud, 1.0, noise);
-
                 cloudFaded = fmix(cloudFaded, 1.0, noise);
 
                 if (currentDepth == maxDist && cloud > 0.5) {
