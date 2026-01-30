@@ -56,18 +56,12 @@ void computeShadow(inout vec3 shadow, vec3 shadowPos, float offset, float subsur
          blueNoiseDither = fract(blueNoiseDither + 1.61803398875 * mod(float(frameCounter), 3600.0));
     #endif
 
-    // Optimized: Unrolled loop with pre-computed base offsets
-    // First offset pair
-    vec2 baseOffset0 = offsetDist(blueNoiseDither, 2) * offset;
-    shadow += SampleShadow(vec3(shadowPos.st + baseOffset0, shadowPos.z));
-    shadow += SampleShadow(vec3(shadowPos.st - baseOffset0, shadowPos.z));
+    // Optimized: Reduced to 2 samples (from 4) with temporal dithering for quality
+    vec2 baseOffset = offsetDist(blueNoiseDither, 1) * offset;
+    shadow += SampleShadow(vec3(shadowPos.st + baseOffset, shadowPos.z));
+    shadow += SampleShadow(vec3(shadowPos.st - baseOffset, shadowPos.z));
 
-    // Second offset pair
-    vec2 baseOffset1 = offsetDist(blueNoiseDither + 1.0, 2) * offset;
-    shadow += SampleShadow(vec3(shadowPos.st + baseOffset1, shadowPos.z));
-    shadow += SampleShadow(vec3(shadowPos.st - baseOffset1, shadowPos.z));
-
-    shadow *= 0.25;  // Optimized: multiply instead of divide
+    shadow *= 0.5;
 }
 #endif
 

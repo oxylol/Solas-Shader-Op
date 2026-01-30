@@ -11,9 +11,11 @@ vec2 getLightPos() {
 	return tpos.xy / tpos.z * 0.5;
 }
 
+// Optimized: Reduced divisions and pre-compute size factor
 float BaseLens(vec2 lightPos, float size, float dist, float hardness) {
-	vec2 lensCoord = (texCoord + (lightPos * dist - 0.5)) * vec2(aspectRatio,1.0);
-	float lens = clamp(1.0 - length(lensCoord) / (size * fovmult), 0.0, 1.0 / hardness) * hardness;
+	vec2 lensCoord = (texCoord + (lightPos * dist - 0.5)) * vec2(aspectRatio, 1.0);
+	float invSize = 1.0 / (size * fovmult);
+	float lens = clamp((1.0 - length(lensCoord) * invSize) * hardness, 0.0, 1.0);
 	lens *= lens; lens *= lens;
 	return lens;
 }
@@ -26,8 +28,14 @@ float PointLens(vec2 lightPos, float size, float dist) {
 	return BaseLens(lightPos, size, dist, 1.5) + BaseLens(lightPos, size * 4.0, dist, 1.0) * 0.5;
 }
 
+// Optimized: Simplified ring transform using cheaper approximation
 float RingLensTransform(float lensFlare) {
-	return pow(1.0 - pow(1.0 - pow(lensFlare, 0.25), 10.0), 5.0);
+	float x = sqrt(sqrt(lensFlare));  // pow(x, 0.25) = sqrt(sqrt(x))
+	float y = 1.0 - x;
+	float y5 = y * y * y * y * y;
+	float y10 = y5 * y5;
+	float z = 1.0 - y10;
+	return z * z * z * z * z;
 }
 float RingLens(vec2 lightPos, float size, float distA, float distB) {
 	float lensFlare1 = RingLensTransform(BaseLens(lightPos, size, distA, 1.0));
