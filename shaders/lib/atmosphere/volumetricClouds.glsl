@@ -173,7 +173,7 @@ void computeVolumetricClouds(inout vec4 vc, in vec3 atmosphereColor, float z, fl
 		#endif
 
 		//Ray marcher peramters
-        int maxsampleCount = 16;
+        int maxsampleCount = 10;  // Reduced from 16 for better performance
 
         float cloudBottom = height;
         float cloudTop = cloudBottom + thickness * scale;
@@ -268,7 +268,14 @@ void computeVolumetricClouds(inout vec4 vc, in vec3 atmosphereColor, float z, fl
                 // Optimized: Combine step operations
                 float attenuation = step(cloudBottom, rayPos.y) * step(rayPos.y, cloudTop);
 
-                float noise = CloudSample(cloudCoord, wind, sampleAltitude, thickness, frequency, amount, density) * attenuation;
+                // Optimized: Use low-detail sample at distance for better performance
+                float noise;
+                if (xzNormalizedDistance > fadeStart * 0.5) {
+                    // Far away - use low detail for both
+                    noise = CloudSampleLowDetail(cloudCoord, wind, sampleAltitude, thickness, frequency, amount, density) * attenuation;
+                } else {
+                    noise = CloudSample(cloudCoord, wind, sampleAltitude, thickness, frequency, amount, density) * attenuation;
+                }
 
                 float lightingNoise = CloudSampleLowDetail(cloudCoord + worldLightVec.xz, wind, sampleAltitude, thickness, frequency, amount, density) * attenuation;
 

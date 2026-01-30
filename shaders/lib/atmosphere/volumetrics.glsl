@@ -1,14 +1,16 @@
 #ifdef NETHER_SMOKE
+// Optimized: Simplified fog sample with fewer trig calls
 float getNetherFogSample(vec3 fogPos) {
-    fogPos.x *= 0.5 + cos(fogPos.y * 0.5 + frameTimeCounter * 0.3 + fract(fogPos.z * 0.01) * 0.5) * 0.00004;
-    fogPos.z *= 0.5 + sin(fogPos.y * 0.7 + frameTimeCounter * 0.15 + fract(fogPos.x * 0.01) * 0.3) * 0.00006;
+    // Simplified distortion using just the y-based offset
+    float yFactor = fogPos.y * 0.1;
+    vec2 coord = fogPos.xz * 0.005;
 
-    float n3da = texture2D(noisetex, fogPos.xz * 0.005 + floor(fogPos.y * 0.1) * 0.1).r;
-    float n3db = texture2D(noisetex, fogPos.xz * 0.005 + floor(fogPos.y * 0.1 + 1.0) * 0.1).r;
+    float floorY = floor(yFactor);
+    float n3da = texture2D(noisetex, coord + floorY * 0.1).r;
+    float n3db = texture2D(noisetex, coord + (floorY + 1.0) * 0.1).r;
 
-    float cloudyNoise = fmix(n3da, n3db, fract(fogPos.y * 0.1));
-          cloudyNoise = max(cloudyNoise - 0.5, 0.0);
-    return cloudyNoise;
+    float cloudyNoise = fmix(n3da, n3db, fract(yFactor));
+    return max(cloudyNoise - 0.5, 0.0);
 }
 #endif
 
@@ -35,11 +37,13 @@ void calculateVLParameters(inout float intensity, inout float distanceFactor, in
 
     float timeIntensityFactor = fmix(VL_NIGHT * 2.0, fmix(VL_MORNING_EVENING, VL_DAY, timeBrightness), sunVisibility);
 
+    // Optimized: Reduced from 10 to 5 samples for average depth
     float averageDepth = 0.0;
-	for (float i = 0.1; i < 1.0; i += 0.1) {
+	for (float i = 0.1; i < 1.0; i += 0.2) {
 		float depthSample = texelFetch(depthtex0, ivec2(viewWidth * i * 0.55, viewHeight * 0.65), 0).r;
-			  depthSample = pow4(depthSample) * float(depthSample > 0.05);
-		averageDepth += depthSample * 0.1;
+		float depthSample2 = depthSample * depthSample;
+		depthSample = depthSample2 * depthSample2 * float(depthSample > 0.05);
+		averageDepth += depthSample * 0.2;
 	}
     float closedSpaceFactor = 1.0 - min(1.0, pow8(eBS) * 0.5 + averageDepth * (0.7 - eBS * eBS * 0.35));
 

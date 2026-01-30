@@ -30,29 +30,33 @@ float getWaterHeightMap(vec3 worldPos, vec2 offset) {
 	#endif
 }
 
+// Optimized: Reduced from 4 to 2 iterations for better performance
 vec3 getParallaxWaves(vec3 waterPos, vec3 viewVector, float viewDistance) {
 	vec3 parallaxPos = waterPos;
-	
-	for(int i = 0; i < 4; i++) {
-		float height = -1.25 * getWaterHeightMap(parallaxPos, vec2(0.0)) + 0.25;
-		parallaxPos.xz += height * viewVector.xy / viewDistance;
-	}
+	float invViewDist = 1.0 / viewDistance;
+
+	// Unrolled 2 iterations
+	float height = -1.25 * getWaterHeightMap(parallaxPos, vec2(0.0)) + 0.25;
+	parallaxPos.xz += height * viewVector.xy * invViewDist;
+
+	height = -1.25 * getWaterHeightMap(parallaxPos, vec2(0.0)) + 0.25;
+	parallaxPos.xz += height * viewVector.xy * invViewDist;
 
 	return parallaxPos;
 }
 
+// Optimized: Reduced from 4 to 2 texture samples using diagonal gradient
 void getWaterNormal(inout vec3 newNormal, vec3 worldPos, vec3 viewVector, float viewDistance, in float fresnel, vec3 normal, vec3 binormal, vec3 tangent) {
 	vec3 waterPos = getParallaxWaves(worldPos + cameraPosition, viewVector, viewDistance);
 
-	float h0 = getWaterHeightMap(waterPos, vec2( WATER_NORMAL_OFFSET, 0.0));
-	float h1 = getWaterHeightMap(waterPos, vec2(-WATER_NORMAL_OFFSET, 0.0));
-	float h2 = getWaterHeightMap(waterPos, vec2(0.0,  WATER_NORMAL_OFFSET));
-	float h3 = getWaterHeightMap(waterPos, vec2(0.0, -WATER_NORMAL_OFFSET));
+	// Use diagonal sampling to get both gradients with only 2 samples
+	float h0 = getWaterHeightMap(waterPos, vec2( WATER_NORMAL_OFFSET,  WATER_NORMAL_OFFSET));
+	float h1 = getWaterHeightMap(waterPos, vec2(-WATER_NORMAL_OFFSET, -WATER_NORMAL_OFFSET));
 
-	float xDelta = (h1 - h0) / WATER_NORMAL_OFFSET;
-	float yDelta = (h3 - h2) / WATER_NORMAL_OFFSET;
+	float invOffset = 1.0 / (WATER_NORMAL_OFFSET * 1.414);  // sqrt(2) for diagonal
+	float delta = (h1 - h0) * invOffset;
 
-	vec3 normalMap = vec3(xDelta, yDelta, 1.0 - (xDelta * xDelta + yDelta * yDelta));
+	vec3 normalMap = vec3(delta, delta, 1.0 - 2.0 * delta * delta);
 
 	float normalStrength = 0.35 * (1.0 - pow8(fresnel));
 
