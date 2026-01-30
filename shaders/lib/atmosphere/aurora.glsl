@@ -93,8 +93,8 @@ void drawAurora(inout vec3 color, in vec3 worldPos, in float caveFactor, in floa
         	  dither = fract(frameTimeCounter * 16.0 + dither);
         #endif
 
-		//Determines the quality of aurora. Since it stretches a lot during strong geomagnetic storms, we need more samples
-		int samples = int(8 + kpIndex * 8);
+		// Iris-only: Reduced aurora samples (was 8-16, now 6-10) for better performance
+		int samples = int(6 + kpIndex * 4);
 		float sampleStep = 1.0 / samples;
 		float currentStep = dither * sampleStep;
 

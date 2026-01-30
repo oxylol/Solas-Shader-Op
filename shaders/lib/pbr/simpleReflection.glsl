@@ -37,14 +37,18 @@ void getReflection(inout vec4 color, in vec3 viewPos, in vec3 normal, in float f
             float lod = log2(viewHeight * 0.125 * pow2(1.0 - smoothness) * lodFactor) * (0.8 - smoothness * 0.4);
             lod = max(lod - 1.0, 0.0);
 
-            for (int i = -2; i <= 2; i++) {
-                for (int j = -2; j <= 2; j++) {
-                    vec2 offset = vec2(i, j) * (0.1 + exp2(lod - 1.0)) / vec2(viewWidth, viewHeight);
-                    reflection += texture2DLod(colortex0, reflectPos.xy + offset, max(lod - 1, 0.0));
+            // Iris-only: Reduced from 5x5 (25) to 3x3 (9) samples for better performance
+            float offsetScale = (0.1 + exp2(lod - 1.0));
+            vec2 invViewSize = 1.0 / vec2(viewWidth, viewHeight);
+            float lodSample = max(lod - 1.0, 0.0);
+            for (int i = -1; i <= 1; i++) {
+                for (int j = -1; j <= 1; j++) {
+                    vec2 offset = vec2(i, j) * offsetScale * invViewSize;
+                    reflection += texture2DLod(colortex0, reflectPos.xy + offset, lodSample);
                 }
             }
 
-            reflection /= 25.0;
+            reflection *= 0.1111111;  // 1/9
 
             edgeFactor.x *= edgeFactor.x;
             edgeFactor = 1.0 - edgeFactor;

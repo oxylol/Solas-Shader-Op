@@ -84,11 +84,8 @@ void getNormalFog(inout vec3 color, in vec3 atmosphereColor, in vec3 viewPos, in
 	//Distant Fade
 	#ifdef DISTANT_FADE
 	if (isEyeInWater == 0) {
-		#if MC_VERSION >= 11800
+		// Iris-only: Assume MC 1.18+ (no fog offset needed)
 		const float fogOffset = 0.0;
-		#else
-		const float fogOffset = 12.0;
-		#endif
 
 		#if DISTANT_FADE_STYLE == 0
 		float fogFactor = lWorldPos;

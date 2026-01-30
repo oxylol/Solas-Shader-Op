@@ -26,19 +26,17 @@ float getWaterHeightMap(vec3 worldPos, vec2 offset) {
 	return noise * WATER_NORMAL_BUMP;
 }
 
+// Iris-only: Reduced from 5 to 3 texture samples using diagonal sampling
 float getWaterCaustics(vec3 waterPos) {
 	float h0 = getWaterHeightMap(waterPos, vec2(0.0));
-	float h1 = getWaterHeightMap(waterPos, vec2( WATER_NORMAL_OFFSET, 0.0));
-	float h2 = getWaterHeightMap(waterPos, vec2(-WATER_NORMAL_OFFSET, 0.0));
-	float h3 = getWaterHeightMap(waterPos, vec2(0.0,  WATER_NORMAL_OFFSET));
-	float h4 = getWaterHeightMap(waterPos, vec2(0.0, -WATER_NORMAL_OFFSET));
+	float h1 = getWaterHeightMap(waterPos, vec2( WATER_NORMAL_OFFSET,  WATER_NORMAL_OFFSET));
+	float h2 = getWaterHeightMap(waterPos, vec2(-WATER_NORMAL_OFFSET, -WATER_NORMAL_OFFSET));
 
-	float xDeltaA = (h1 - h0) / WATER_NORMAL_OFFSET;
-	float xDeltaB = (h2 - h0) / WATER_NORMAL_OFFSET;
-	float yDeltaA = (h3 - h0) / WATER_NORMAL_OFFSET;
-	float yDeltaB = (h4 - h0) / WATER_NORMAL_OFFSET;
+	float invOffset = 1.0 / (WATER_NORMAL_OFFSET * 1.414);  // sqrt(2) for diagonal
+	float delta1 = (h1 - h0) * invOffset;
+	float delta2 = (h2 - h0) * invOffset;
 
-	float height = max((xDeltaA * -xDeltaB + yDeltaA * -yDeltaB) * 48.0, 0.0);
+	float height = max(delta1 * -delta2 * 96.0, 0.0);
 
 	return height;
 }
