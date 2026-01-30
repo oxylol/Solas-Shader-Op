@@ -32,7 +32,8 @@ void getReflection(inout vec4 color, in vec3 viewPos, in vec3 normal, in float f
             vec2 edgeFactor = pow4(cdist);
             reflectPos.y += blueNoiseDither * (edgeFactor.x + edgeFactor.y) * 0.05;
 
-            float lodFactor = 1.0 - exp(-0.125 * pow2(1.0 - smoothness) * dist);
+            // Optimized: exp2 is faster than exp (-0.125 * LOG2_E = -0.1803)
+            float lodFactor = 1.0 - exp2(-0.1803 * pow2(1.0 - smoothness) * dist);
             float lod = log2(viewHeight * 0.125 * pow2(1.0 - smoothness) * lodFactor) * (0.8 - smoothness * 0.4);
             lod = max(lod - 1.0, 0.0);
 

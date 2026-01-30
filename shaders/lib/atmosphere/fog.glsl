@@ -1,8 +1,13 @@
+// Optimized: Using exp2 which is faster on most GPUs
+// exp(x) = exp2(x * 1.4426950408889634)  (1/ln(2))
+const float LOG2_E = 1.4426950408889634;
+
 //1.19 Darkness Fog
 #if MC_VERSION >= 11900
 void getDarknessFog(inout vec3 color, float lViewPos) {
 	float fog = lViewPos * darknessFactor * 0.01;
-		  fog = (1.0 - exp(-fog)) * darknessFactor;
+	// Optimized: exp2 instead of exp
+	fog = (1.0 - exp2(-fog * LOG2_E)) * darknessFactor;
 
     color *= 1.0 - fog;
 }
@@ -11,20 +16,24 @@ void getDarknessFog(inout vec3 color, float lViewPos) {
 //Blindness Fog
 void getBlindFog(inout vec3 color, float lViewPos) {
 	float fog = lViewPos * blindFactor * 0.1;
-		  fog = (1.0 - exp(-4.0 * fog * fog * fog)) * blindFactor;
+	float fogCubed = fog * fog * fog;
+	// Optimized: exp2 instead of exp, pre-multiply constant
+	fog = (1.0 - exp2(-5.7707801635 * fogCubed)) * blindFactor;  // -4.0 * LOG2_E = -5.7707801635
 
 	color *= 1.0 - fog;
 }
 
 //Powder Snow / Lava Fog
-vec3 densefogCol[2] = vec3[2](
+const vec3 densefogCol[2] = vec3[2](
 	vec3(1.0, 0.18, 0.02),
 	vec3(0.05, 0.07, 0.12)
 );
 
 void getDenseFog(inout vec3 color, float lViewPos) {
-	float fog = lViewPos * (0.15 + float(isEyeInWater == 3) * 0.5);
-		  fog = 1.0 - exp(-2.0 * fog * fog);
+	float fogMult = 0.15 + float(isEyeInWater == 3) * 0.5;
+	float fog = lViewPos * fogMult;
+	// Optimized: exp2 instead of exp
+	fog = 1.0 - exp2(-2.8853900817 * fog * fog);  // -2.0 * LOG2_E = -2.8853900817
 
 	color = fmix(color, densefogCol[isEyeInWater - 2], fog);
 }
@@ -47,9 +56,14 @@ void getNormalFog(inout vec3 color, in vec3 atmosphereColor, in vec3 viewPos, in
 	float noise = texture2D(noisetex, (fogPos.xz + fogPos.y) * 0.0005 + frameCounter * 0.00001).r;
             noise *= noise;
     float distanceFactor = 50.0 * (0.5 + timeBrightness * 0.75) + FOG_DISTANCE * (0.75 + caveFactor * 0.25) - wetness * 25.0;
-	float distanceMult = max(256.0 / farPlane, 2.0) * (100.0 / distanceFactor);
+	// Optimized: Pre-compute inverse to use multiplication instead of division
+	float invDistanceFactor = 1.0 / distanceFactor;
+	float distanceMult = max(256.0 / farPlane, 2.0) * (100.0 * invDistanceFactor);
 	float altitudeFactor = FOG_HEIGHT + noise * 10.0 + timeBrightness * 25.0 - isJungle * 15.0;
-	float altitude = 0.25 + exp2(-max(worldPos.y + cameraPosition.y - altitudeFactor, 0.0) / exp2(FOG_HEIGHT_FALLOFF + moonVisibility + timeBrightness + wetness - isJungle - isSwamp));
+	// Optimized: Combine exp2 operations
+	float heightFalloff = FOG_HEIGHT_FALLOFF + moonVisibility + timeBrightness + wetness - isJungle - isSwamp;
+	float altitudeArg = max(worldPos.y + cameraPosition.y - altitudeFactor, 0.0);
+	float altitude = 0.25 + exp2(-altitudeArg * exp2(-heightFalloff));
 		  //altitude = fmix(1.0, altitude, clamp((cameraPosition.y - altitude) / altitude, 0.0, 1.0));
 	float density = FOG_DENSITY * (1.0 + (sunVisibility - timeBrightness) * 0.25 + moonVisibility * 0.5) * (0.5 + noise);
 		  density += isLushCaves * 0.25 + (isDesert * 0.15 + isSwamp * 0.20 + isJungle * 0.35);
@@ -58,7 +72,8 @@ void getNormalFog(inout vec3 color, in vec3 atmosphereColor, in vec3 viewPos, in
     	  density += isPaleGarden * 0.5;
 	#endif
 
-    float fog = 1.0 - exp(-0.005 * lViewPos * distanceMult);
+    // Optimized: exp2 instead of exp
+    float fog = 1.0 - exp2(-0.0072135 * lViewPos * distanceMult);  // -0.005 * LOG2_E = -0.0072135
 		  fog = clamp(fog * density * altitude, 0.0, 1.0);
 
     vec3 nSkyColor = 0.75 * sqrt(normalize(skyColor + 0.000001)) * fmix(vec3(1.0), biomeColor, sunVisibility * isSpecificBiome);
@@ -103,9 +118,15 @@ void getNormalFog(inout vec3 color, in vec3 atmosphereColor, in vec3 viewPos, in
 	#ifdef NETHER
 	float fog = lViewPos * 0.005;
 	#ifdef DISTANT_FADE
-	      fog += 6.0 * pow4(lWorldPos / farPlane);
+	      // Optimized: Pre-compute inverse farPlane
+	      float invFarPlane = 1.0 / farPlane;
+	      float normalizedDist = lWorldPos * invFarPlane;
+	      float dist4 = normalizedDist * normalizedDist;
+	      dist4 *= dist4;
+	      fog += 6.0 * dist4;
 	#endif
-	      fog = 1.0 - exp(-fog);
+	      // Optimized: exp2 instead of exp
+	      fog = 1.0 - exp2(-fog * LOG2_E);
 
 	vec3 fogCol = netherColSqrt.rgb * 0.25;
 	#endif
@@ -113,12 +134,14 @@ void getNormalFog(inout vec3 color, in vec3 atmosphereColor, in vec3 viewPos, in
 	//End fog
 	#ifdef END
     vec3 wpos = ToWorld(viewPos);
-    vec3 nWorldPos = normalize(wpos);
+    // Optimized: Use inversesqrt for normalization
+    float wposLen = length(wpos);
+    vec3 nWorldPos = wpos * inversesqrt(dot(wpos, wpos) + 0.0001);
     nWorldPos.y += nWorldPos.x * END_ANGLE;
 
     #ifdef END_67
     if (frameCounter < 500) {
-        nWorldPos.y += nWorldPos.x * 0.5 * sin(frameTimeCounter * 8);
+        nWorldPos.y += nWorldPos.x * 0.5 * sin(frameTimeCounter * 8.0);
     }
     #endif
 
@@ -126,10 +149,14 @@ void getNormalFog(inout vec3 color, in vec3 atmosphereColor, in vec3 viewPos, in
 		nWorldPos.y += nWorldPos.x * min(0.025 * frameTimeCounter, 1.0);
 	#endif
 
-	float density = pow4(1.0 - abs(nWorldPos.y));
+	// Optimized: pow4 inline
+	float absY = 1.0 - abs(nWorldPos.y);
+	float absYSqr = absY * absY;
+	float density = absYSqr * absYSqr;
 		  density *= 1.0 - clamp((cameraPosition.y - 100.0) * 0.01, 0.0, 1.0);
 
-	float fog = 1.0 - exp(-0.0001 * length(wpos));
+	// Optimized: exp2 instead of exp, use cached length
+	float fog = 1.0 - exp2(-0.00014427 * wposLen);  // -0.0001 * LOG2_E
 		  fog = clamp(fog * density, 0.0, 1.0);
 
 	vec3 fogCol = vec3(1.0, 1.0, 0.75) * endLightColSqrt;
